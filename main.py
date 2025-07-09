@@ -67,11 +67,18 @@ async def ai_chat(message: types.Message):
     
     prompt = message.get_args()
     if not prompt:
-        await message.reply("გთხოვთ, მიუთითეთ კითხვა: /ai თქვენი კითხვა")
+        try:
+            await bot.send_message(message.chat.id, "გთხოვთ, მიუთითეთ კითხვა: /ai თქვენი კითხვა")
+        except Exception as e:
+            logging.error(f"Error sending message: {e}")
         return
     
     logging.info(f"Processing AI prompt: '{prompt}'")
-    await message.chat.do("typing")
+    
+    try:
+        await message.chat.do("typing")
+    except Exception as e:
+        logging.warning(f"Could not send typing indicator: {e}")
     
     if hf_client:
         # Use Hugging Face if available
@@ -92,10 +99,10 @@ async def ai_chat(message: types.Message):
             else:
                 answer = str(response)
             logging.info(f"AI response: {answer}")
-            await message.reply(answer)
+            await bot.send_message(message.chat.id, answer)
         except Exception as e:
             logging.error(f"AI ERROR: {e}")
-            await message.reply("დაფიქსირდა შეცდომა AI-სთან დაკავშირებისას. სცადეთ მოგვიანებით.")
+            await bot.send_message(message.chat.id, "დაფიქსირდა შეცდომა AI-სთან დაკავშირებისას. სცადეთ მოგვიანებით.")
     else:
         # Fallback to simple responses
         logging.info("Using fallback AI responses")
@@ -111,14 +118,17 @@ async def ai_chat(message: types.Message):
         else:
             answer = "მესმის თქვენი შეტყობინება. უფასო AI ფუნქციონალის გასააქტიურებლად გთხოვთ, დაუკავშირდეთ ადმინისტრატორს HUGGINGFACE_API_KEY-ის დამატებისთვის."
         
-            logging.info(f"Fallback AI response: {answer}")
-    await message.reply(answer)
+        logging.info(f"Fallback AI response: {answer}")
+        await bot.send_message(message.chat.id, answer)
 
 @dp.message_handler(commands=["test"])
 async def test_bot(message: types.Message):
     """ტესტ ბრძანება ბოტის მუშაობის შესამოწმებლად"""
     logging.info(f"Test command received from user {message.from_user.id}")
-    await message.reply("🤖 ბოტი მუშაობს! ტესტი წარმატებულია.")
+    try:
+        await bot.send_message(message.chat.id, "🤖 ბოტი მუშაობს! ტესტი წარმატებულია.")
+    except Exception as e:
+        logging.error(f"Error sending test message: {e}")
 
 # === Routes ===
 @app.get("/")
