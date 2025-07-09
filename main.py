@@ -63,33 +63,47 @@ payze_client = PayzeClient(PAYZE_API_KEY, PAYZE_MERCHANT_ID) if PAYZE_API_KEY an
 # === AI Chat Handler ===
 @dp.message_handler(commands=["ai"])
 async def ai_chat(message: types.Message):
-    if not hf_client:
-        await message.reply("AI ფუნქციონალი დროებით მიუწვდომელია. ადმინისტრატორს არ აქვს მითითებული HUGGINGFACE_API_KEY.")
-        return
     prompt = message.get_args()
     if not prompt:
         await message.reply("გთხოვთ, მიუთითეთ კითხვა: /ai თქვენი კითხვა")
         return
+    
     await message.chat.do("typing")
-    try:
-        response = await hf_client.text_generation(
-            HF_MODEL,
-            prompt,
-            max_new_tokens=256,
-            temperature=0.7,
-            top_p=0.95,
-            repetition_penalty=1.1,
-            do_sample=True,
-            return_full_text=False,
-        )
-        if hasattr(response, "generated_text"):
-            answer = response.generated_text.strip()
+    
+    if hf_client:
+        # Use Hugging Face if available
+        try:
+            response = await hf_client.text_generation(
+                HF_MODEL,
+                prompt,
+                max_new_tokens=256,
+                temperature=0.7,
+                top_p=0.95,
+                repetition_penalty=1.1,
+                do_sample=True,
+                return_full_text=False,
+            )
+            if hasattr(response, "generated_text"):
+                answer = response.generated_text.strip()
+            else:
+                answer = str(response)
+            await message.reply(answer)
+        except Exception as e:
+            await message.reply("დაფიქსირდა შეცდომა AI-სთან დაკავშირებისას. სცადეთ მოგვიანებით.")
+            logging.error(f"AI ERROR: {e}")
+    else:
+        # Fallback to simple responses
+        prompt_lower = prompt.lower()
+        if "გამარჯობა" in prompt_lower or "hello" in prompt_lower or "hi" in prompt_lower:
+            await message.reply("გამარჯობა! როგორ შემიძლია დაგეხმაროთ?")
+        elif "როგორ ხარ" in prompt_lower or "how are you" in prompt_lower:
+            await message.reply("მადლობა, კარგად! მზად ვარ დაგეხმაროთ ნებისმიერი კითხვით.")
+        elif "მადლობა" in prompt_lower or "thank" in prompt_lower:
+            await message.reply("გთხოვთ! სიამოვნებით დაგეხმარებით.")
+        elif "?" in prompt:
+            await message.reply("კარგი კითხვაა! უფასო AI ფუნქციონალის გასააქტიურებლად გთხოვთ, დაუკავშირდეთ ადმინისტრატორს HUGGINGFACE_API_KEY-ის დამატებისთვის.")
         else:
-            answer = str(response)
-        await message.reply(answer)
-    except Exception as e:
-        await message.reply("დაფიქსირდა შეცდომა AI-სთან დაკავშირებისას. სცადეთ მოგვიანებით.")
-        logging.error(f"AI ERROR: {e}")
+            await message.reply("მესმის თქვენი შეტყობინება. უფასო AI ფუნქციონალის გასააქტიურებლად გთხოვთ, დაუკავშირდეთ ადმინისტრატორს HUGGINGFACE_API_KEY-ის დამატებისთვის.")
 
 # === Routes ===
 @app.get("/")
