@@ -1,0 +1,57 @@
+name: Deploy Bot to Render
+
+on:
+  push:
+    branches:
+      - master  # or main depending on your default branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10.13'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Deploy to Render via webhook (optional)
+        if: env.RENDER_WEBHOOK_URL != ''
+        env:
+          RENDER_WEBHOOK_URL: ${{ secrets.RENDER_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+            -d '{"type":"push","payload":{"ref":"refs/heads/master"}}' \
+            "$RENDER_WEBHOOK_URL"
+
+      - name: Notify on Telegram (optional)
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "❌ BOT_TOKEN ან CHAT_ID ცარიელია"
+            exit 1
+          fi
+
+          echo "BOT_TOKEN partial: ${BOT_TOKEN:0:5}... (length: ${#BOT_TOKEN})"
+          echo "CHAT_ID: $CHAT_ID"
+
+          response=$(curl -s -w "%{http_code}" -o response.json -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="✅ ბოტი განახლდა Render-ზე")
+
+          echo "Telegram API response code: $response"
+          cat response.json
+
+          if [ "$response" != "200" ]; then
+            echo "❌ შეცდომა Telegram-ზე გაგზავნისას"
+            exit 3
+          fi

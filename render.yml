@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: telegram-bot
+    env: docker
+    repo: https://github.com/tomson20/Sales-bot--telegram
+    branch: master
+    dockerContext: .
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_CHAT_ID
+        sync: false
+      - key: SPREADSHEET_ID
+        sync: false
+    autoDeploy: true
+
