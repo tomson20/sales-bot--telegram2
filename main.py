@@ -11,8 +11,7 @@ from aiogram.dispatcher.webhook import get_new_configured_app
 from aiogram.utils.exceptions import BotBlocked, ChatNotFound, TelegramAPIError
 
 import gspread
-from config import BOT_TOKEN, ADMIN_CHAT_ID, SPREADSHEET_ID, WEBHOOK_URL, HUGGINGFACE_API_KEY, PAYZE_API_KEY, PAYZE_MERCHANT_ID
-from huggingface_hub import InferenceClient
+from config import BOT_TOKEN, ADMIN_CHAT_ID, SPREADSHEET_ID, WEBHOOK_URL, PAYZE_API_KEY, PAYZE_MERCHANT_ID
 from payze import PayzeClient
 
 # === Logging ===
@@ -49,77 +48,10 @@ user_data = {}
 # === ინვოისების დროებითი ბაზა (user_id <-> invoice_id) ===
 user_invoice_map = {}
 
-# === Hugging Face AI Client ===
-logging.info(f"HUGGINGFACE_API_KEY exists: {HUGGINGFACE_API_KEY is not None}")
-if HUGGINGFACE_API_KEY:
-    logging.info(f"HUGGINGFACE_API_KEY length: {len(HUGGINGFACE_API_KEY)}")
-    logging.info(f"HUGGINGFACE_API_KEY starts with: {HUGGINGFACE_API_KEY[:10]}...")
-hf_client = InferenceClient(token=HUGGINGFACE_API_KEY) if HUGGINGFACE_API_KEY else None
-HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
-
 # === Payze Client ===
 payze_client = PayzeClient(PAYZE_API_KEY, PAYZE_MERCHANT_ID) if PAYZE_API_KEY and PAYZE_MERCHANT_ID else None
 
-# === AI Chat Handler ===
-@dp.message_handler(commands=["ai"])
-async def ai_chat(message: types.Message):
-    logging.info(f"AI command received from user {message.from_user.id}: {message.text}")
-    
-    prompt = message.get_args()
-    if not prompt:
-        try:
-            await bot.send_message(message.chat.id, "გთხოვთ, მიუთითეთ კითხვა: /ai თქვენი კითხვა")
-        except Exception as e:
-            logging.error(f"Error sending message: {e}")
-        return
-    
-    logging.info(f"Processing AI prompt: '{prompt}'")
-    
-    try:
-        await message.chat.do("typing")
-    except Exception as e:
-        logging.warning(f"Could not send typing indicator: {e}")
-    
-    if hf_client:
-        # Use Hugging Face if available
-        logging.info("Using Hugging Face client")
-        try:
-            response = await hf_client.text_generation(
-                HF_MODEL,
-                prompt,
-                max_new_tokens=256,
-                temperature=0.7,
-                top_p=0.95,
-                repetition_penalty=1.1,
-                do_sample=True,
-                return_full_text=False,
-            )
-            if hasattr(response, "generated_text"):
-                answer = response.generated_text.strip()
-            else:
-                answer = str(response)
-            logging.info(f"AI response: {answer}")
-            await bot.send_message(message.chat.id, answer)
-        except Exception as e:
-            logging.error(f"AI ERROR: {e}")
-            await bot.send_message(message.chat.id, "დაფიქსირდა შეცდომა AI-სთან დაკავშირებისას. სცადეთ მოგვიანებით.")
-    else:
-        # Fallback to simple responses
-        logging.info("Using fallback AI responses")
-        prompt_lower = prompt.lower()
-        if "გამარჯობა" in prompt_lower or "hello" in prompt_lower or "hi" in prompt_lower:
-            answer = "გამარჯობა! როგორ შემიძლია დაგეხმაროთ?"
-        elif "როგორ ხარ" in prompt_lower or "how are you" in prompt_lower:
-            answer = "მადლობა, კარგად! მზად ვარ დაგეხმაროთ ნებისმიერი კითხვით."
-        elif "მადლობა" in prompt_lower or "thank" in prompt_lower:
-            answer = "გთხოვთ! სიამოვნებით დაგეხმარებით."
-        elif "?" in prompt:
-            answer = "კარგი კითხვაა! უფასო AI ფუნქციონალის გასააქტიურებლად გთხოვთ, დაუკავშირდეთ ადმინისტრატორს HUGGINGFACE_API_KEY-ის დამატებისთვის."
-        else:
-            answer = "მესმის თქვენი შეტყობინება. უფასო AI ფუნქციონალის გასააქტიურებლად გთხოვთ, დაუკავშირდეთ ადმინისტრატორს HUGGINGFACE_API_KEY-ის დამატებისთვის."
-        
-        logging.info(f"Fallback AI response: {answer}")
-        await bot.send_message(message.chat.id, answer)
+
 
 @dp.message_handler(commands=["test"])
 async def test_bot(message: types.Message):
@@ -147,23 +79,14 @@ async def telegram_webhook(request: Request):
 # === Bot Handlers ===
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
-    welcome_text = """🤖 გამარჯობა! მოგესალმებთ AI-ბოტი!
+    welcome_text = """🤖 გამარჯობა! მოგესალმებთ შეკვეთების ბოტი!
 
 📋 **შეკვეთებისთვის:**
 აირჩიე პროდუქტი ნომრის მიხედვით:
 
 """ + "\n".join([f"{k}. {v}" for k, v in products.items()]) + """
 
-💬 **AI ჩატისთვის:**
-გამოიყენეთ ბრძანება: `/ai თქვენი კითხვა`
-
-მაგალითად:
-• `/ai როგორ ხარ?`
-• `/ai გამარჯობა`
-• `/ai რა არის AI?`
-
 🛒 შეკვეთებისთვის აირჩიეთ პროდუქტი ზემოთ მოყვანილი სიიდან.
-💬 AI ჩატისთვის გამოიყენეთ /ai ბრძანება.
 
 ❓ **დახმარებისთვის:** `/help`"""
     
@@ -174,11 +97,9 @@ async def send_welcome(message: types.Message):
 
 /start - მთავარი მენიუ
 /help - დახმარება და ინსტრუქციები
-/ai კითხვა - AI ჩატი
 /test - ბოტის ტესტი
 
 💡 **სწრაფი ბრძანებები:**
-• `/ai გამარჯობა` - დაგესალმებთ AI
 • `/help` - ნახეთ ყველა ფუნქცია"""
     
     await bot.send_message(chat_id=message.chat.id, text=commands_text)
@@ -191,10 +112,6 @@ async def send_help(message: types.Message):
 • `/start` - დაიწყეთ შეკვეთის პროცესი
 • აირჩიეთ პროდუქტი ნომრით (1, 2, 3, და ა.შ.)
 
-💬 **AI ჩატისთვის:**
-• `/ai კითხვა` - დაუსვით კითხვა AI-ს
-• მაგალითად: `/ai როგორ ხარ?`
-
 ❓ **დახმარებისთვის:**
 • `/help` - ეს შეტყობინება
 
@@ -205,9 +122,7 @@ async def send_help(message: types.Message):
 4. შეიყვანეთ ტელეფონი
 5. გადაიხადეთ Payze-ით
 
-💡 **AI ჩატი მუშაობს ორ რეჟიმში:**
-• უფასო რეჟიმი - მარტივი პასუხები
-• სრული AI რეჟიმი - Hugging Face მოდელით (საჭიროა API გასაღები)"""
+💡 **შეკვეთებისთვის:** აირჩიეთ პროდუქტი /start ბრძანებით."""
     
     await bot.send_message(chat_id=message.chat.id, text=help_text)
 
@@ -286,11 +201,10 @@ async def get_phone(message: types.Message):
 
     await bot.send_message(message.chat.id, "გმადლობთ! თქვენი შეკვეთა მიღებულია ✅")
     
-    # დავამატოთ შეტყობინება AI ფუნქციის შესახებ
+    # დავამატოთ შეტყობინება დამატებითი ფუნქციების შესახებ
     await bot.send_message(
         message.chat.id, 
         "💡 **დამატებითი ფუნქციები:**\n"
-        "• `/ai კითხვა` - დაუსვით კითხვა AI-ს\n"
         "• `/help` - ნახეთ ყველა ბრძანება\n"
         "• `/start` - დაიწყეთ ახალი შეკვეთა"
     )
