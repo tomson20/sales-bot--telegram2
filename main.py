@@ -50,6 +50,10 @@ user_data = {}
 user_invoice_map = {}
 
 # === Hugging Face AI Client ===
+logging.info(f"HUGGINGFACE_API_KEY exists: {HUGGINGFACE_API_KEY is not None}")
+if HUGGINGFACE_API_KEY:
+    logging.info(f"HUGGINGFACE_API_KEY length: {len(HUGGINGFACE_API_KEY)}")
+    logging.info(f"HUGGINGFACE_API_KEY starts with: {HUGGINGFACE_API_KEY[:10]}...")
 hf_client = InferenceClient(token=HUGGINGFACE_API_KEY) if HUGGINGFACE_API_KEY else None
 HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
 
