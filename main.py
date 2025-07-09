@@ -122,8 +122,53 @@ async def telegram_webhook(request: Request):
 # === Bot Handlers ===
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
-    text = "გამარჯობა! აირჩიე პროდუქტი ნომრის მიხედვით:\n" + "\n".join([f"{k}. {v}" for k, v in products.items()])
-    await bot.send_message(chat_id=message.chat.id, text=text)
+    welcome_text = """🤖 გამარჯობა! მოგესალმებთ AI-ბოტი!
+
+📋 **შეკვეთებისთვის:**
+აირჩიე პროდუქტი ნომრის მიხედვით:
+
+""" + "\n".join([f"{k}. {v}" for k, v in products.items()]) + """
+
+💬 **AI ჩატისთვის:**
+გამოიყენეთ ბრძანება: `/ai თქვენი კითხვა`
+
+მაგალითად:
+• `/ai როგორ ხარ?`
+• `/ai გამარჯობა`
+• `/ai რა არის AI?`
+
+🛒 შეკვეთებისთვის აირჩიეთ პროდუქტი ზემოთ მოყვანილი სიიდან.
+💬 AI ჩატისთვის გამოიყენეთ /ai ბრძანება."""
+    
+    await bot.send_message(chat_id=message.chat.id, text=welcome_text)
+
+@dp.message_handler(commands=['help'])
+async def send_help(message: types.Message):
+    help_text = """🤖 **ბოტის ბრძანებები:**
+
+📋 **შეკვეთებისთვის:**
+• `/start` - დაიწყეთ შეკვეთის პროცესი
+• აირჩიეთ პროდუქტი ნომრით (1, 2, 3, და ა.შ.)
+
+💬 **AI ჩატისთვის:**
+• `/ai კითხვა` - დაუსვით კითხვა AI-ს
+• მაგალითად: `/ai როგორ ხარ?`
+
+❓ **დახმარებისთვის:**
+• `/help` - ეს შეტყობინება
+
+🛒 **შეკვეთის პროცესი:**
+1. აირჩიეთ პროდუქტი
+2. შეიყვანეთ სახელი
+3. შეიყვანეთ მისამართი
+4. შეიყვანეთ ტელეფონი
+5. გადაიხადეთ Payze-ით
+
+💡 **AI ჩატი მუშაობს ორ რეჟიმში:**
+• უფასო რეჟიმი - მარტივი პასუხები
+• სრული AI რეჟიმი - Hugging Face მოდელით (საჭიროა API გასაღები)"""
+    
+    await bot.send_message(chat_id=message.chat.id, text=help_text)
 
 @dp.message_handler(lambda message: message.text in products.keys())
 async def product_selected(message: types.Message):
@@ -199,6 +244,16 @@ async def get_phone(message: types.Message):
         await bot.send_message(message.chat.id, "გადახდის ფუნქციონალი დროებით მიუწვდომელია.")
 
     await bot.send_message(message.chat.id, "გმადლობთ! თქვენი შეკვეთა მიღებულია ✅")
+    
+    # დავამატოთ შეტყობინება AI ფუნქციის შესახებ
+    await bot.send_message(
+        message.chat.id, 
+        "💡 **დამატებითი ფუნქციები:**\n"
+        "• `/ai კითხვა` - დაუსვით კითხვა AI-ს\n"
+        "• `/help` - ნახეთ ყველა ბრძანება\n"
+        "• `/start` - დაიწყეთ ახალი შეკვეთა"
+    )
+    
     del user_data[message.from_user.id]
 
 # === Payze გადახდის სტატუსის Webhook ===
