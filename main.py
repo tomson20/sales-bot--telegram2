@@ -340,21 +340,36 @@ async def online_payment(callback_query: types.CallbackQuery):
                     logging.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
                 
             else:
+                cash_keyboard = types.InlineKeyboardMarkup()
+                cash_keyboard.add(
+                    types.InlineKeyboardButton("ნაღდი ფულით გადახდა", callback_data=f"cash_{user_id}")
+                )
                 await callback_query.message.edit_text(
                     "❌ გადახდის ბმულის გენერაცია ვერ მოხერხდა.\n"
-                    "გთხოვთ, სცადეთ მოგვიანებით ან აირჩიეთ ნაღდი ფულით გადახდა."
+                    "გთხოვთ, სცადეთ მოგვიანებით ან აირჩიეთ ნაღდი ფულით გადახდა.",
+                    reply_markup=cash_keyboard
                 )
                 
         except Exception as e:
             logging.error(f"PAYZE ERROR: {e}")
+            cash_keyboard = types.InlineKeyboardMarkup()
+            cash_keyboard.add(
+                types.InlineKeyboardButton("ნაღდი ფულით გადახდა", callback_data=f"cash_{user_id}")
+            )
             await callback_query.message.edit_text(
                 "❌ გადახდის სისტემა დროებით მიუწვდომელია.\n"
-                "გთხოვთ, აირჩიეთ ნაღდი ფულით გადახდა."
+                "აირჩიეთ ნაღდი ფულით გადახდა 👇",
+                reply_markup=cash_keyboard
             )
     else:
+        cash_keyboard = types.InlineKeyboardMarkup()
+        cash_keyboard.add(
+            types.InlineKeyboardButton("ნაღდი ფულით გადახდა", callback_data=f"cash_{user_id}")
+        )
         await callback_query.message.edit_text(
             "❌ ონლაინ გადახდა დროებით მიუწვდომელია.\n"
-            "გთხოვთ, აირჩიეთ ნაღდი ფულით გადახდა."
+            "აირჩიეთ ნაღდი ფულით გადახდა 👇",
+            reply_markup=cash_keyboard
         )
 
 # === Payze გადახდის სტატუსის Webhook ===
