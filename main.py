@@ -162,7 +162,7 @@ async def get_phone(message: types.Message):
         data["name"],
         data["address"],
         data["phone"],
-        "",  # სტატუსი ცარიელია
+        "გადახდილი",  # სტატუსი ცარიელია
         order_date,
         order_time
     ])
