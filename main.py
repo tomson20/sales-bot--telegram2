@@ -211,7 +211,8 @@ async def cash_payment(callback_query: types.CallbackQuery):
         except Exception as e:
             logging.error(f"Google Sheets განახლების შეცდომა: {e}")
 
-    await callback_query.message.edit_text(
+    # შეკვეთის დასრულების შეტყობინება (ნაღდი ფული)
+    complete_text = (
         f"✅ **ნაღდი ფულით გადახდა არჩეულია!**\n\n"
         f"📦 პროდუქტი: {data['product']}\n"
         f"📛 სახელი: {data['name']}\n"
@@ -219,8 +220,14 @@ async def cash_payment(callback_query: types.CallbackQuery):
         f"📞 ტელეფონი: {data['phone']}\n\n"
         f"💵 გადაიხადეთ მიწოდებისას ნაღდი ფულით.\n"
         f"🚚 მიწოდება მოხდება მალე.\n\n"
-        f"💡 ახალი შეკვეთისთვის: `/start`"
+        f"💡 ახალი შეკვეთისთვის: /start"
     )
+    complete_keyboard = types.InlineKeyboardMarkup(row_width=2)
+    complete_keyboard.add(
+        types.InlineKeyboardButton("/start", callback_data="start_again"),
+        types.InlineKeyboardButton("/help", callback_data="help_info")
+    )
+    await callback_query.message.edit_text(complete_text, reply_markup=complete_keyboard)
 
     # შევატყობინოთ ადმინს შეკვეთის დეტალებით, გადახდის მეთოდით და ბმულით
     try:
@@ -301,13 +308,21 @@ async def online_payment(callback_query: types.CallbackQuery):
             if pay_url and invoice_id:
                 user_invoice_map[invoice_id] = user_id
                 
-                await callback_query.message.edit_text(
+                # შეკვეთის დასრულების შეტყობინება (ონლაინ გადახდა)
+                complete_text = (
                     f"💳 **ონლაინ გადახდა არჩეულია!**\n\n"
                     f"📦 პროდუქტი: {data['product']}\n"
                     f"💰 თანხა: {amount}₾\n\n"
                     f"🔗 გადახდის ბმული:\n{pay_url}\n\n"
                     f"💡 გადახდის შემდეგ მიიღებთ დადასტურებას."
                 )
+                # ბოლოს
+                complete_keyboard = types.InlineKeyboardMarkup(row_width=2)
+                complete_keyboard.add(
+                    types.InlineKeyboardButton("/start", callback_data="start_again"),
+                    types.InlineKeyboardButton("/help", callback_data="help_info")
+                )
+                await callback_query.message.edit_text(complete_text, reply_markup=complete_keyboard)
 
                 # შევატყობინოთ ადმინს შეკვეთის დეტალებით, გადახდის მეთოდით და ბმულით
                 try:
@@ -417,4 +432,15 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 10000))  # Render-ის პორტი
     uvicorn.run("main:app", host="0.0.0.0", port=port)
+
+# დაამატე ჰენდლერი start_again და help_info callback-ებისთვის
+@dp.callback_query_handler(lambda c: c.data == 'start_again')
+async def callback_start_again(callback_query: types.CallbackQuery):
+    await send_welcome(callback_query.message)
+    await callback_query.answer()
+
+@dp.callback_query_handler(lambda c: c.data == 'help_info')
+async def callback_help_info(callback_query: types.CallbackQuery):
+    await send_help(callback_query.message)
+    await callback_query.answer()
 
