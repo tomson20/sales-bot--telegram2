@@ -152,7 +152,7 @@ async def get_phone(message: types.Message):
 
     data = user_data[message.from_user.id]
     
-    # შევინახოთ შეკვეთა Google Sheets-ში
+    # შეკვეთის დამატებისას სტატუსი იყოს "მიღებული"
     worksheet.append_row([
         message.from_user.username or str(message.from_user.id),
         data["product"],
@@ -225,13 +225,11 @@ async def cash_payment(callback_query: types.CallbackQuery):
     
     data = user_data[user_id]
     
-    # განვახლოთ Google Sheets-ში სტატუსი
+    # განვახლოთ Google Sheets-ში სტატუსი "ნაღდი ფული"
     try:
-        # ვიპოვოთ ბოლო შეკვეთა ამ მომხმარებლისთვის
         all_orders = worksheet.get_all_values()
         for i, row in enumerate(all_orders):
             if row[0] == str(user_id) and row[1] == data["product"] and row[2] == data["name"]:
-                # განვახლოთ სტატუსი
                 worksheet.update_cell(i + 1, 6, "ნაღდი ფული")
                 break
     except Exception as e:
@@ -307,12 +305,12 @@ async def online_payment(callback_query: types.CallbackQuery):
                     f"💡 გადახდის შემდეგ მიიღებთ დადასტურებას."
                 )
                 
-                # განვახლოთ Google Sheets-ში სტატუსი
+                # განვახლოთ Google Sheets-ში სტატუსი "ონლაინ გადახდა"
                 try:
                     all_orders = worksheet.get_all_values()
                     for i, row in enumerate(all_orders):
                         if row[0] == str(user_id) and row[1] == data["product"] and row[2] == data["name"]:
-                            worksheet.update_cell(i + 1, 6, "ონლაინ გადახდა - მიმდინარე")
+                            worksheet.update_cell(i + 1, 6, "ონლაინ გადახდა")
                             break
                 except Exception as e:
                     logging.error(f"Google Sheets განახლების შეცდომა: {e}")
@@ -348,11 +346,11 @@ async def payze_webhook(request: Request):
         user_id = user_invoice_map.get(invoice_id)
         if user_id:
             try:
-                # განვახლოთ Google Sheets-ში სტატუსი
+                # განვახლოთ Google Sheets-ში სტატუსი მხოლოდ თუ "ონლაინ გადახდა" იყო
                 try:
                     all_orders = worksheet.get_all_values()
                     for i, row in enumerate(all_orders):
-                        if row[0] == str(user_id) and "ონლაინ გადახდა" in row[5]:
+                        if row[0] == str(user_id) and row[5] == "ონლაინ გადახდა":
                             worksheet.update_cell(i + 1, 6, "გადახდილი")
                             break
                 except Exception as e:
