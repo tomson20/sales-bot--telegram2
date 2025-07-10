@@ -97,29 +97,8 @@ async def send_welcome(message: types.Message):
 
 @dp.message_handler(commands=['help'])
 async def send_help(message: types.Message):
-    help_text = """🤖 **ბოტის ბრძანებები:**
-
-📋 **შეკვეთებისთვის:**
-• `/start` - დაიწყეთ შეკვეთის პროცესი
-• აირჩიეთ პროდუქტი ნომრით (1, 2, 3, და ა.შ.)
-
-❓ **დახმარებისთვის:**
-• `/help` - ეს შეტყობინება
-
-🛒 **შეკვეთის პროცესი:**
-1. აირჩიეთ პროდუქტი
-2. შეიყვანეთ სახელი
-3. შეიყვანეთ მისამართი
-4. შეიყვანეთ ტელეფონი
-5. აირჩიეთ გადახდის მეთოდი
-
-💳 **გადახდის ვარიანტები:**
-• 💵 **ნაღდი ფული** - გადაიხადეთ მიწოდებისას
-• 💳 **ონლაინ გადახდა** - გადაიხადეთ ახლა Payze-ით
-
-💡 **შეკვეთებისთვის:** აირჩიეთ პროდუქტი /start ბრძანებით."""
-    
-    await bot.send_message(chat_id=message.chat.id, text=help_text)
+    help_text = """🤖 **ბოტის ბრძანებები:**\n\n📋 **შეკვეთებისთვის:**\n• `/start` - დაიწყეთ შეკვეთის პროცესი\n• აირჩიეთ პროდუქტი ნომრით (1, 2, 3, და ა.შ.)\n\n❓ **დახმარებისთვის:**\n• `/help` - ეს შეტყობინება\n\n🛒 **შეკვეთის პროცესი:**\n1. აირჩიეთ პროდუქტი\n2. შეიყვანეთ სახელი\n3. შეიყვანეთ მისამართი\n4. შეიყვანეთ ტელეფონი\n5. აირჩიეთ გადახდის მეთოდი\n\n💳 **გადახდის ვარიანტები:**\n• 💵 **ნაღდი ფული** - გადაიხადეთ მიწოდებისას\n• 💳 **ონლაინ გადახდა** - გადაიხადეთ ახლა Payze-ით\n\n👨‍💼 **კითხვები ან დახმარება?**\nდაუკავშირდით ადმინს: [ჩატი ადმინთან](https://t.me/mebura)\n\n💡 **შეკვეთებისთვის:** აირჩიეთ პროდუქტი /start ბრძანებით."""
+    await bot.send_message(chat_id=message.chat.id, text=help_text, parse_mode="Markdown", disable_web_page_preview=True)
 
 @dp.message_handler(lambda message: message.text in products.keys())
 async def product_selected(message: types.Message):
@@ -160,41 +139,11 @@ async def get_phone(message: types.Message):
         order_time
     ])
 
-    # შევატყობინოთ ადმინს
-    try:
-        await bot.send_message(
-            ADMIN_CHAT_ID,
-            f"📥 ახალი შეკვეთა:\n"
-            f"👤 მომხმარებელი: {message.from_user.username or message.from_user.id}\n"
-            f"📦 პროდუქტი: {data['product']}\n"
-            f"📛 სახელი: {data['name']}\n"
-            f"📍 მისამართი: {data['address']}\n"
-            f"📞 ტელეფონი: {data['phone']}"
-        )
-    except BotBlocked:
-        logging.warning(f"ბოტი დაბლოკილია ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
-    except ChatNotFound:
-        logging.warning(f"ჩეთი ვერ მოიძებნა: {ADMIN_CHAT_ID}")
-    except TelegramAPIError as e:
-        logging.error(f"Telegram API შეცდომა: {e}")
-
     # შეკვეთის დასრულების შეტყობინება
     await bot.send_message(message.chat.id, "✅ თქვენი შეკვეთა წარმატებით მიღებულია!")
     
     # გადახდის ვარიანტების შეტყობინება
-    payment_text = f"""💳 **გადახდის ვარიანტები:**
-
-📦 პროდუქტი: {data['product']}
-
-🔸 **ვარიანტი 1: ნაღდი ფული მიწოდებისას**
-   - გადაიხადეთ მიწოდებისას ნაღდი ფულით
-   - უფასო მიწოდება
-
-🔸 **ვარიანტი 2: ონლაინ გადახდა**
-   - გადაიხადეთ ახლა ონლაინ Payze-ით
-   - უფასო მიწოდება
-
-აირჩიეთ გადახდის მეთოდი:"""
+    payment_text = f"""💳 **გადახდის ვარიანტები:**\n\n📦 პროდუქტი: {data['product']}\n\n🔸 **ვარიანტი 1: ნაღდი ფული მიწოდებისას**\n   - გადაიხადეთ მიწოდებისას ნაღდი ფულით\n   - უფასო მიწოდება\n\n🔸 **ვარიანტი 2: ონლაინ გადახდა**\n   - გადაიხადეთ ახლა ონლაინ Payze-ით\n   - უფასო მიწოდება\n\nაირჩიეთ გადახდის მეთოდი:"""
     
     # შევქმნათ ღილაკები
     keyboard = types.InlineKeyboardMarkup(row_width=2)
@@ -251,7 +200,7 @@ async def cash_payment(callback_query: types.CallbackQuery):
             worksheet.update_cell(row_idx, 6, "ნაღდი ფული")
         except Exception as e:
             logging.error(f"Google Sheets განახლების შეცდომა: {e}")
-    
+
     await callback_query.message.edit_text(
         f"✅ **ნაღდი ფულით გადახდა არჩეულია!**\n\n"
         f"📦 პროდუქტი: {data['product']}\n"
@@ -262,21 +211,24 @@ async def cash_payment(callback_query: types.CallbackQuery):
         f"🚚 მიწოდება მოხდება მალე.\n\n"
         f"💡 ახალი შეკვეთისთვის: `/start`"
     )
-    
-    # შევატყობინოთ ადმინს
+
+    # შევატყობინოთ ადმინს შეკვეთის დეტალებით და გადახდის მეთოდით
     try:
         await bot.send_message(
             ADMIN_CHAT_ID,
-            f"💵 **ნაღდი ფულით გადახდა არჩეულია:**\n"
+            f"📥 ახალი შეკვეთა\n"
             f"👤 მომხმარებელი: {callback_query.from_user.username or callback_query.from_user.id}\n"
             f"📦 პროდუქტი: {data['product']}\n"
             f"📛 სახელი: {data['name']}\n"
             f"📍 მისამართი: {data['address']}\n"
-            f"📞 ტელეფონი: {data['phone']}"
+            f"📞 ტელეფონი: {data['phone']}\n"
+            f"🗓 თარიღი: {data['order_date']}\n"
+            f"⏰ დრო: {data['order_time']}\n"
+            f"💳 გადახდის მეთოდი: ნაღდი ფული"
         )
     except Exception as e:
         logging.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
-    
+
     del user_data[user_id]
 
 @dp.callback_query_handler(lambda c: c.data.startswith('online_'))
@@ -305,7 +257,7 @@ async def online_payment(callback_query: types.CallbackQuery):
             worksheet.update_cell(row_idx, 6, "ონლაინ გადახდა")
         except Exception as e:
             logging.error(f"Google Sheets განახლების შეცდომა: {e}")
-    
+
     # შევქმნათ Payze გადახდის ბმული
     if payze_client:
         try:
@@ -334,16 +286,24 @@ async def online_payment(callback_query: types.CallbackQuery):
                     f"🔗 გადახდის ბმული:\n{pay_url}\n\n"
                     f"💡 გადახდის შემდეგ მიიღებთ დადასტურებას."
                 )
-                
-                # განვახლოთ Google Sheets-ში სტატუსი "ონლაინ გადახდა"
+
+                # შევატყობინოთ ადმინს შეკვეთის დეტალებით, გადახდის მეთოდით და ბმულით
                 try:
-                    all_orders = worksheet.get_all_values()
-                    for i, row in enumerate(all_orders):
-                        if row[0] == str(user_id) and row[1] == data["product"] and row[2] == data["name"]:
-                            worksheet.update_cell(i + 1, 6, "ონლაინ გადახდა")
-                            break
+                    await bot.send_message(
+                        ADMIN_CHAT_ID,
+                        f"📥 ახალი შეკვეთა\n"
+                        f"👤 მომხმარებელი: {callback_query.from_user.username or callback_query.from_user.id}\n"
+                        f"📦 პროდუქტი: {data['product']}\n"
+                        f"📛 სახელი: {data['name']}\n"
+                        f"📍 მისამართი: {data['address']}\n"
+                        f"📞 ტელეფონი: {data['phone']}\n"
+                        f"🗓 თარიღი: {data['order_date']}\n"
+                        f"⏰ დრო: {data['order_time']}\n"
+                        f"💳 გადახდის მეთოდი: ონლაინ გადახდა\n"
+                        f"🔗 გადახდის ბმული: {pay_url}"
+                    )
                 except Exception as e:
-                    logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+                    logging.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
                 
             else:
                 await callback_query.message.edit_text(
