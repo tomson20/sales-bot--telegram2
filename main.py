@@ -144,8 +144,11 @@ async def get_phone(message: types.Message):
     data = user_data[message.from_user.id]
     order_date = datetime.date.today().isoformat()
     order_time = datetime.datetime.now().strftime("%H:%M:%S")
+    # Save date and time in user_data for later status update
+    user_data[message.from_user.id]["order_date"] = order_date
+    user_data[message.from_user.id]["order_time"] = order_time
     
-    # შეკვეთის დამატებისას სტატუსი იყოს ცარიელი, ბოლო ორი სვეტი: თარიღი და დრო
+    # Always append to the last row, ignore empty rows
     worksheet.append_row([
         message.from_user.username or str(message.from_user.id),
         data["product"],
@@ -206,6 +209,22 @@ async def get_phone(message: types.Message):
     user_data[message.from_user.id]["payment_pending"] = True
 
 # === Callback Handlers for Payment Buttons ===
+# Helper to find the correct row for status update
+
+def find_order_row(user_id, product, phone, order_date, order_time):
+    all_orders = worksheet.get_all_values()
+    for i, row in enumerate(all_orders):
+        if (
+            len(row) >= 8 and
+            row[0] == str(user_id) and
+            row[1] == product and
+            row[4] == phone and
+            row[6] == order_date and
+            row[7] == order_time
+        ):
+            return i + 1  # 1-based index for gspread
+    return None
+
 @dp.callback_query_handler(lambda c: c.data.startswith('cash_'))
 async def cash_payment(callback_query: types.CallbackQuery):
     user_id = int(callback_query.data.split('_')[1])
@@ -214,21 +233,24 @@ async def cash_payment(callback_query: types.CallbackQuery):
         await callback_query.answer("ეს ღილაკი არ არის თქვენი შეკვეთისთვის!")
         return
     
-    if user_id not in user_data:
+    data = user_data.get(user_id)
+    if not data:
         await callback_query.answer("შეკვეთა ვერ მოიძებნა!")
         return
     
-    data = user_data[user_id]
+    row_idx = find_order_row(
+        user_id,
+        data["product"],
+        data["phone"],
+        data["order_date"],
+        data["order_time"]
+    )
     
-    # განვახლოთ Google Sheets-ში სტატუსი "ნაღდი ფული"
-    try:
-        all_orders = worksheet.get_all_values()
-        for i, row in enumerate(all_orders):
-            if row[0] == str(user_id) and row[1] == data["product"] and row[2] == data["name"]:
-                worksheet.update_cell(i + 1, 6, "ნაღდი ფული")
-                break
-    except Exception as e:
-        logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+    if row_idx:
+        try:
+            worksheet.update_cell(row_idx, 6, "ნაღდი ფული")
+        except Exception as e:
+            logging.error(f"Google Sheets განახლების შეცდომა: {e}")
     
     await callback_query.message.edit_text(
         f"✅ **ნაღდი ფულით გადახდა არჩეულია!**\n\n"
@@ -265,11 +287,24 @@ async def online_payment(callback_query: types.CallbackQuery):
         await callback_query.answer("ეს ღილაკი არ არის თქვენი შეკვეთისთვის!")
         return
     
-    if user_id not in user_data:
+    data = user_data.get(user_id)
+    if not data:
         await callback_query.answer("შეკვეთა ვერ მოიძებნა!")
         return
     
-    data = user_data[user_id]
+    row_idx = find_order_row(
+        user_id,
+        data["product"],
+        data["phone"],
+        data["order_date"],
+        data["order_time"]
+    )
+    
+    if row_idx:
+        try:
+            worksheet.update_cell(row_idx, 6, "ონლაინ გადახდა")
+        except Exception as e:
+            logging.error(f"Google Sheets განახლების შეცდომა: {e}")
     
     # შევქმნათ Payze გადახდის ბმული
     if payze_client:
@@ -339,17 +374,21 @@ async def payze_webhook(request: Request):
     # Payze-ს დოკუმენტაციით, წარმატებული გადახდა: status == 'paid'
     if invoice_id and status == "paid":
         user_id = user_invoice_map.get(invoice_id)
-        if user_id:
+        data = user_data.get(user_id)
+        if user_id and data:
             try:
-                # განვახლოთ Google Sheets-ში სტატუსი მხოლოდ თუ "ონლაინ გადახდა" იყო
-                try:
-                    all_orders = worksheet.get_all_values()
-                    for i, row in enumerate(all_orders):
-                        if row[0] == str(user_id) and row[5] == "ონლაინ გადახდა":
-                            worksheet.update_cell(i + 1, 6, "გადახდილი")
-                            break
-                except Exception as e:
-                    logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+                row_idx = find_order_row(
+                    user_id,
+                    data["product"],
+                    data["phone"],
+                    data["order_date"],
+                    data["order_time"]
+                )
+                if row_idx:
+                    try:
+                        worksheet.update_cell(row_idx, 6, "გადახდილი")
+                    except Exception as e:
+                        logging.error(f"Google Sheets განახლების შეცდომა: {e}")
                 
                 # შევატყობინოთ მომხმარებელს
                 await bot.send_message(
