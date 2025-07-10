@@ -184,7 +184,17 @@ async def cash_payment(callback_query: types.CallbackQuery):
     
     data = user_data.get(user_id)
     if not data:
-        await callback_query.answer("შეკვეთა ვერ მოიძებნა!")
+        logging.error(f"user_data not found for user_id: {user_id}")
+        await callback_query.answer("შეკვეთა ვერ მოიძებნა! გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
+        return
+    
+    # შევამოწმოთ, რომ ყველა საჭირო მონაცემი არსებობს
+    required_fields = ["product", "name", "address", "phone", "order_date", "order_time"]
+    missing_fields = [field for field in required_fields if field not in data]
+    
+    if missing_fields:
+        logging.error(f"Missing fields for user_id {user_id}: {missing_fields}. Available fields: {list(data.keys())}")
+        await callback_query.answer(f"შეკვეთის მონაცემები არასრულია. გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
         return
     
     row_idx = find_order_row(
@@ -212,7 +222,7 @@ async def cash_payment(callback_query: types.CallbackQuery):
         f"💡 ახალი შეკვეთისთვის: `/start`"
     )
 
-    # შევატყობინოთ ადმინს შეკვეთის დეტალებით და გადახდის მეთოდით
+    # შევატყობინოთ ადმინს შეკვეთის დეტალებით, გადახდის მეთოდით და ბმულით
     try:
         await bot.send_message(
             ADMIN_CHAT_ID,
@@ -226,10 +236,12 @@ async def cash_payment(callback_query: types.CallbackQuery):
             f"⏰ დრო: {data['order_time']}\n"
             f"💳 გადახდის მეთოდი: ნაღდი ფული"
         )
+        # წავშალოთ მომხმარებლის მონაცემები მხოლოდ მას შემდეგ, რაც ადმინს წარმატებით გაეგზავნება შეტყობინება
+        del user_data[user_id]
     except Exception as e:
         logging.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
-
-    del user_data[user_id]
+        # თუ ადმინისთვის შეტყობინების გაგზავნა ვერ მოხერხდა, მაინც წავშალოთ მონაცემები
+        del user_data[user_id]
 
 @dp.callback_query_handler(lambda c: c.data.startswith('online_'))
 async def online_payment(callback_query: types.CallbackQuery):
@@ -241,7 +253,17 @@ async def online_payment(callback_query: types.CallbackQuery):
     
     data = user_data.get(user_id)
     if not data:
-        await callback_query.answer("შეკვეთა ვერ მოიძებნა!")
+        logging.error(f"user_data not found for user_id: {user_id}")
+        await callback_query.answer("შეკვეთა ვერ მოიძებნა! გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
+        return
+    
+    # შევამოწმოთ, რომ ყველა საჭირო მონაცემი არსებობს
+    required_fields = ["product", "name", "address", "phone", "order_date", "order_time"]
+    missing_fields = [field for field in required_fields if field not in data]
+    
+    if missing_fields:
+        logging.error(f"Missing fields for user_id {user_id}: {missing_fields}. Available fields: {list(data.keys())}")
+        await callback_query.answer(f"შეკვეთის მონაცემები არასრულია. გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
         return
     
     row_idx = find_order_row(
