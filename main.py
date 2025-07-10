@@ -84,16 +84,6 @@ async def send_welcome(message: types.Message):
     
     await bot.send_message(chat_id=message.chat.id, text=welcome_text)
     
-    # დავამატოთ ბრძანებების სია
-    commands_text = """🔧 **ხელმისაწვდომი ბრძანებები:**
-
-/start - მთავარი მენიუ
-/help - დახმარება და ინსტრუქციები
-
-💡 **სწრაფი ბრძანებები:**
-• `/help` - ნახეთ ყველა ფუნქცია"""
-    
-    await bot.send_message(chat_id=message.chat.id, text=commands_text)
 
 @dp.message_handler(commands=['help'])
 async def send_help(message: types.Message):
@@ -220,7 +210,6 @@ async def cash_payment(callback_query: types.CallbackQuery):
         f"📞 ტელეფონი: {data['phone']}\n\n"
         f"💵 გადაიხადეთ მიწოდებისას ნაღდი ფულით.\n"
         f"🚚 მიწოდება მოხდება მალე.\n\n"
-        f"💡 ახალი შეკვეთისთვის: /start"
     )
     complete_keyboard = types.InlineKeyboardMarkup(row_width=2)
     complete_keyboard.add(
