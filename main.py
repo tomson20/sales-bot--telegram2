@@ -187,6 +187,7 @@ async def cash_payment(callback_query: types.CallbackQuery):
         await callback_query.answer(f"შეკვეთის მონაცემები არასრულია. გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
         return
     
+    logging.info(f"find_order_row params: user_id={user_id}, product={data['product']}, phone={data['phone']}, date={data['order_date']}, time={data['order_time']}")
     row_idx = find_order_row(
         user_id,
         data["product"],
@@ -194,12 +195,15 @@ async def cash_payment(callback_query: types.CallbackQuery):
         data["order_date"],
         data["order_time"]
     )
-    
+    logging.info(f"find_order_row result: row_idx={row_idx}")
     if row_idx:
         try:
             worksheet.update_cell(row_idx, 6, "ნაღდი გადახდა")
         except Exception as e:
             logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+    else:
+        logging.error(f"ვერ მოიძებნა შესაბამისი რიგი გადახდის სტატუსის ჩასაწერად (cash). user_id={user_id}")
+        await bot.send_message(callback_query.from_user.id, "⚠️ ტექნიკური შეცდომა: გადახდის სტატუსის ჩაწერა ვერ მოხერხდა. გთხოვთ, დაუკავშირდეთ ადმინს.")
 
     # შეკვეთის დასრულების შეტყობინება (ნაღდი ფული)
     complete_text = (
@@ -262,6 +266,7 @@ async def online_payment(callback_query: types.CallbackQuery):
         await callback_query.answer(f"შეკვეთის მონაცემები არასრულია. გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
         return
     
+    logging.info(f"find_order_row params: user_id={user_id}, product={data['product']}, phone={data['phone']}, date={data['order_date']}, time={data['order_time']}")
     row_idx = find_order_row(
         user_id,
         data["product"],
@@ -269,12 +274,15 @@ async def online_payment(callback_query: types.CallbackQuery):
         data["order_date"],
         data["order_time"]
     )
-    
+    logging.info(f"find_order_row result: row_idx={row_idx}")
     if row_idx:
         try:
             worksheet.update_cell(row_idx, 6, "ონლაინ გადახდა")
         except Exception as e:
             logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+    else:
+        logging.error(f"ვერ მოიძებნა შესაბამისი რიგი გადახდის სტატუსის ჩასაწერად (online). user_id={user_id}")
+        await bot.send_message(callback_query.from_user.id, "⚠️ ტექნიკური შეცდომა: გადახდის სტატუსის ჩაწერა ვერ მოხერხდა. გთხოვთ, დაუკავშირდეთ ადმინს.")
 
     # შევქმნათ Payze გადახდის ბმული
     if payze_client:
