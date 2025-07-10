@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import datetime
 
 from fastapi import FastAPI, Request
 import uvicorn
@@ -151,15 +152,19 @@ async def get_phone(message: types.Message):
     user_data[message.from_user.id]["phone"] = message.text
 
     data = user_data[message.from_user.id]
+    order_date = datetime.date.today().isoformat()
+    order_time = datetime.datetime.now().strftime("%H:%M:%S")
     
-    # შეკვეთის დამატებისას სტატუსი იყოს "მიღებული"
+    # შეკვეთის დამატებისას სტატუსი იყოს ცარიელი, ბოლო ორი სვეტი: თარიღი და დრო
     worksheet.append_row([
         message.from_user.username or str(message.from_user.id),
         data["product"],
         data["name"],
         data["address"],
         data["phone"],
-        "მიღებული"  # სტატუსი
+        "",  # სტატუსი ცარიელია
+        order_date,
+        order_time
     ])
 
     # შევატყობინოთ ადმინს
