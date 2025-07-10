@@ -119,7 +119,7 @@ async def get_phone(message: types.Message):
     
     # Always append to the last row, ignore empty rows
     worksheet.append_row([
-        message.from_user.username or str(message.from_user.id),
+        str(message.from_user.id),  # მხოლოდ user_id A სვეტში
         data["product"],
         data["name"],
         data["address"],
