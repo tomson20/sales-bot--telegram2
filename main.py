@@ -120,7 +120,11 @@ async def send_help(message: types.Message):
 2. შეიყვანეთ სახელი
 3. შეიყვანეთ მისამართი
 4. შეიყვანეთ ტელეფონი
-5. გადაიხადეთ Payze-ით
+5. აირჩიეთ გადახდის მეთოდი
+
+💳 **გადახდის ვარიანტები:**
+• 💵 **ნაღდი ფული** - გადაიხადეთ მიწოდებისას
+• 💳 **ონლაინ გადახდა** - გადაიხადეთ ახლა Payze-ით
 
 💡 **შეკვეთებისთვის:** აირჩიეთ პროდუქტი /start ბრძანებით."""
     
@@ -147,14 +151,18 @@ async def get_phone(message: types.Message):
     user_data[message.from_user.id]["phone"] = message.text
 
     data = user_data[message.from_user.id]
+    
+    # შევინახოთ შეკვეთა Google Sheets-ში
     worksheet.append_row([
         message.from_user.username or str(message.from_user.id),
         data["product"],
         data["name"],
         data["address"],
-        data["phone"]
+        data["phone"],
+        "მიღებული"  # სტატუსი
     ])
 
+    # შევატყობინოთ ადმინს
     try:
         await bot.send_message(
             ADMIN_CHAT_ID,
@@ -172,44 +180,160 @@ async def get_phone(message: types.Message):
     except TelegramAPIError as e:
         logging.error(f"Telegram API შეცდომა: {e}")
 
-    # === Payze გადახდის ბმული ===
+    # შეკვეთის დასრულების შეტყობინება
+    await bot.send_message(message.chat.id, "✅ თქვენი შეკვეთა წარმატებით მიღებულია!")
+    
+    # გადახდის ვარიანტების შეტყობინება
+    payment_text = f"""💳 **გადახდის ვარიანტები:**
+
+📦 პროდუქტი: {data['product']}
+
+🔸 **ვარიანტი 1: ნაღდი ფული მიწოდებისას**
+   - გადაიხადეთ მიწოდებისას ნაღდი ფულით
+   - უფასო მიწოდება
+
+🔸 **ვარიანტი 2: ონლაინ გადახდა**
+   - გადაიხადეთ ახლა ონლაინ Payze-ით
+   - უფასო მიწოდება
+
+აირჩიეთ გადახდის მეთოდი:"""
+    
+    # შევქმნათ ღილაკები
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        types.InlineKeyboardButton("💵 ნაღდი ფული", callback_data=f"cash_{message.from_user.id}"),
+        types.InlineKeyboardButton("💳 ონლაინ გადახდა", callback_data=f"online_{message.from_user.id}")
+    )
+    
+    await bot.send_message(message.chat.id, payment_text, reply_markup=keyboard)
+    
+    # შევინახოთ მომხმარებლის მონაცემები გადახდისთვის
+    user_data[message.from_user.id]["payment_pending"] = True
+
+# === Callback Handlers for Payment Buttons ===
+@dp.callback_query_handler(lambda c: c.data.startswith('cash_'))
+async def cash_payment(callback_query: types.CallbackQuery):
+    user_id = int(callback_query.data.split('_')[1])
+    
+    if user_id != callback_query.from_user.id:
+        await callback_query.answer("ეს ღილაკი არ არის თქვენი შეკვეთისთვის!")
+        return
+    
+    if user_id not in user_data:
+        await callback_query.answer("შეკვეთა ვერ მოიძებნა!")
+        return
+    
+    data = user_data[user_id]
+    
+    # განვახლოთ Google Sheets-ში სტატუსი
+    try:
+        # ვიპოვოთ ბოლო შეკვეთა ამ მომხმარებლისთვის
+        all_orders = worksheet.get_all_values()
+        for i, row in enumerate(all_orders):
+            if row[0] == str(user_id) and row[1] == data["product"] and row[2] == data["name"]:
+                # განვახლოთ სტატუსი
+                worksheet.update_cell(i + 1, 6, "ნაღდი ფული")
+                break
+    except Exception as e:
+        logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+    
+    await callback_query.message.edit_text(
+        f"✅ **ნაღდი ფულით გადახდა არჩეულია!**\n\n"
+        f"📦 პროდუქტი: {data['product']}\n"
+        f"📛 სახელი: {data['name']}\n"
+        f"📍 მისამართი: {data['address']}\n"
+        f"📞 ტელეფონი: {data['phone']}\n\n"
+        f"💵 გადაიხადეთ მიწოდებისას ნაღდი ფულით.\n"
+        f"🚚 მიწოდება მოხდება მალე.\n\n"
+        f"💡 ახალი შეკვეთისთვის: `/start`"
+    )
+    
+    # შევატყობინოთ ადმინს
+    try:
+        await bot.send_message(
+            ADMIN_CHAT_ID,
+            f"💵 **ნაღდი ფულით გადახდა არჩეულია:**\n"
+            f"👤 მომხმარებელი: {callback_query.from_user.username or callback_query.from_user.id}\n"
+            f"📦 პროდუქტი: {data['product']}\n"
+            f"📛 სახელი: {data['name']}\n"
+            f"📍 მისამართი: {data['address']}\n"
+            f"📞 ტელეფონი: {data['phone']}"
+        )
+    except Exception as e:
+        logging.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
+    
+    del user_data[user_id]
+
+@dp.callback_query_handler(lambda c: c.data.startswith('online_'))
+async def online_payment(callback_query: types.CallbackQuery):
+    user_id = int(callback_query.data.split('_')[1])
+    
+    if user_id != callback_query.from_user.id:
+        await callback_query.answer("ეს ღილაკი არ არის თქვენი შეკვეთისთვის!")
+        return
+    
+    if user_id not in user_data:
+        await callback_query.answer("შეკვეთა ვერ მოიძებნა!")
+        return
+    
+    data = user_data[user_id]
+    
+    # შევქმნათ Payze გადახდის ბმული
     if payze_client:
         try:
             import re
             price_match = re.search(r"(\d+)[₾]", data["product"])
             amount = int(price_match.group(1)) if price_match else 400
-            # description-ში ჩავწეროთ user_id, რომ ვიპოვოთ გადახდისას
-            description = f"{data['product']} - {data['name']} (user_id:{message.from_user.id})"
+            description = f"{data['product']} - {data['name']} (user_id:{user_id})"
+            
             payze_response = payze_client.create_invoice(
                 amount=amount,
                 currency="GEL",
                 callback_url=f"{WEBHOOK_URL}/payze_webhook",
                 description=description
             )
-            pay_url = payze_response["pay_url"] if "pay_url" in payze_response else None
-            invoice_id = payze_response["invoice_id"] if "invoice_id" in payze_response else None
+            
+            pay_url = payze_response.get("pay_url")
+            invoice_id = payze_response.get("invoice_id")
+            
             if pay_url and invoice_id:
-                user_invoice_map[invoice_id] = message.from_user.id
-                await bot.send_message(message.chat.id, f"გადახდისთვის დააჭირე ბმულს:\n{pay_url}")
+                user_invoice_map[invoice_id] = user_id
+                
+                await callback_query.message.edit_text(
+                    f"💳 **ონლაინ გადახდა არჩეულია!**\n\n"
+                    f"📦 პროდუქტი: {data['product']}\n"
+                    f"💰 თანხა: {amount}₾\n\n"
+                    f"🔗 გადახდის ბმული:\n{pay_url}\n\n"
+                    f"💡 გადახდის შემდეგ მიიღებთ დადასტურებას."
+                )
+                
+                # განვახლოთ Google Sheets-ში სტატუსი
+                try:
+                    all_orders = worksheet.get_all_values()
+                    for i, row in enumerate(all_orders):
+                        if row[0] == str(user_id) and row[1] == data["product"] and row[2] == data["name"]:
+                            worksheet.update_cell(i + 1, 6, "ონლაინ გადახდა - მიმდინარე")
+                            break
+                except Exception as e:
+                    logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+                
             else:
-                await bot.send_message(message.chat.id, "გადახდის ბმულის გენერაცია ვერ მოხერხდა. სცადეთ მოგვიანებით.")
+                await callback_query.message.edit_text(
+                    "❌ გადახდის ბმულის გენერაცია ვერ მოხერხდა.\n"
+                    "გთხოვთ, სცადეთ მოგვიანებით ან აირჩიეთ ნაღდი ფულით გადახდა."
+                )
+                
         except Exception as e:
-            await bot.send_message(message.chat.id, "გადახდის ბმულის გენერაცია ვერ მოხერხდა. სცადეთ მოგვიანებით.")
             logging.error(f"PAYZE ERROR: {e}")
+            await callback_query.message.edit_text(
+                "❌ გადახდის სისტემა დროებით მიუწვდომელია.\n"
+                "გთხოვთ, აირჩიეთ ნაღდი ფულით გადახდა."
+            )
     else:
-        await bot.send_message(message.chat.id, "გადახდის ფუნქციონალი დროებით მიუწვდომელია.")
-
-    await bot.send_message(message.chat.id, "გმადლობთ! თქვენი შეკვეთა მიღებულია ✅")
-    
-    # დავამატოთ შეტყობინება დამატებითი ფუნქციების შესახებ
-    await bot.send_message(
-        message.chat.id, 
-        "💡 **დამატებითი ფუნქციები:**\n"
-        "• `/help` - ნახეთ ყველა ბრძანება\n"
-        "• `/start` - დაიწყეთ ახალი შეკვეთა"
-    )
-    
-    del user_data[message.from_user.id]
+        await callback_query.message.edit_text(
+            "❌ ონლაინ გადახდა დროებით მიუწვდომელია.\n"
+            "გთხოვთ, აირჩიეთ ნაღდი ფულით გადახდა."
+        )
 
 # === Payze გადახდის სტატუსის Webhook ===
 @app.post("/payze_webhook")
@@ -218,15 +342,48 @@ async def payze_webhook(request: Request):
     logging.info(f"[PAYZE] მიღებულია გადახდის სტატუსი: {body}")
     invoice_id = body.get("invoice_id")
     status = body.get("status")
+    
     # Payze-ს დოკუმენტაციით, წარმატებული გადახდა: status == 'paid'
     if invoice_id and status == "paid":
         user_id = user_invoice_map.get(invoice_id)
         if user_id:
             try:
-                await bot.send_message(user_id, "გადახდა წარმატებით დადასტურდა! ✅\nგმადლობთ, თქვენი შეკვეთა დამუშავდება მალე.")
+                # განვახლოთ Google Sheets-ში სტატუსი
+                try:
+                    all_orders = worksheet.get_all_values()
+                    for i, row in enumerate(all_orders):
+                        if row[0] == str(user_id) and "ონლაინ გადახდა" in row[5]:
+                            worksheet.update_cell(i + 1, 6, "გადახდილი")
+                            break
+                except Exception as e:
+                    logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+                
+                # შევატყობინოთ მომხმარებელს
+                await bot.send_message(
+                    user_id, 
+                    "✅ **გადახდა წარმატებით დადასტურდა!**\n\n"
+                    "💳 თქვენი გადახდა მიღებულია.\n"
+                    "🚚 შეკვეთა დამუშავდება და მიიტანება მალე.\n\n"
+                    "💡 ახალი შეკვეთისთვის: `/start`"
+                )
+                
+                # შევატყობინოთ ადმინს
+                try:
+                    await bot.send_message(
+                        ADMIN_CHAT_ID,
+                        f"💳 **გადახდა დადასტურდა!**\n"
+                        f"👤 მომხმარებელი: {user_id}\n"
+                        f"🆔 Invoice ID: {invoice_id}\n"
+                        f"✅ სტატუსი: გადახდილი"
+                    )
+                except Exception as e:
+                    logging.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
+                
                 del user_invoice_map[invoice_id]
+                
             except Exception as e:
                 logging.error(f"[PAYZE] მომხმარებლისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
+    
     return JSONResponse(content={"ok": True})
 
 # === Start server & webhook setup ===
