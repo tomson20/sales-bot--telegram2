@@ -12,7 +12,6 @@ from fastapi.responses import JSONResponse
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Update
-from aiogram.utils.exceptions import BotBlocked, ChatNotFound, TelegramAPIError
 
 import gspread
 from config import BOT_TOKEN, ADMIN_CHAT_ID, SPREADSHEET_ID, WEBHOOK_URL, PAYZE_API_KEY, PAYZE_MERCHANT_ID
