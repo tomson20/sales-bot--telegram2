@@ -2,6 +2,8 @@ import os
 import json
 import logging
 import datetime
+import asyncio
+import aiohttp
 
 from fastapi import FastAPI, Request
 import uvicorn
@@ -35,7 +37,7 @@ worksheet = sh.sheet1
 
 # === Sample products ===
 products = {
-    "1": "შეკვეთის მიმღები AI-ბოტი - 300₾",
+    "1": "შეკვეთების მიმღები AI-ბოტი - 300₾",
     "2": "ჯავშნის მიმღები AI-ბოტი - 300₾",
     "3": "პირადი AI-აგენტი - 300₾",
     "4": "ინვოისების და გადახდის გადაგზავნის AI-ბოტი - 300₾",
@@ -53,19 +55,106 @@ user_invoice_map = {}
 # === Payze Client ===
 payze_client = PayzeClient(PAYZE_API_KEY, PAYZE_MERCHANT_ID) if PAYZE_API_KEY and PAYZE_MERCHANT_ID else None
 
+# === Self-ping system for Render free tier ===
+async def self_ping_worker():
+    """Keep the bot awake by pinging itself every 5 minutes"""
+    ping_interval = 300  # 5 minutes (more aggressive)
+    ping_url = None
+    
+    # Get ping URL from environment or construct from webhook URL
+    if os.getenv("SELF_PING_URL"):
+        ping_url = os.getenv("SELF_PING_URL").rstrip("/") + "/"
+    elif WEBHOOK_URL:
+        # Use the root of the webhook URL
+        from urllib.parse import urlparse
+        parsed = urlparse(WEBHOOK_URL)
+        ping_url = f"{parsed.scheme}://{parsed.netloc}/"
+    
+    if not ping_url:
+        logging.warning("Self-ping disabled: no SELF_PING_URL or WEBHOOK_URL configured")
+        return
+    
+    logging.info(f"Self-ping worker started. Target: {ping_url}, Interval: {ping_interval}s")
+    
+    # Also ping the /ping endpoint for better reliability
+    ping_endpoints = [
+        ping_url,
+        f"{ping_url.rstrip('/')}/ping"
+    ]
+    
+    async with aiohttp.ClientSession() as session:
+        while True:
+            success = False
+            
+            for endpoint in ping_endpoints:
+                try:
+                    async with session.get(endpoint, timeout=30) as response:
+                        if response.status == 200:
+                            logging.info(f"Self-ping OK: {endpoint}")
+                            success = True
+                            break
+                        else:
+                            logging.warning(f"Self-ping non-200: {response.status} {endpoint}")
+                except Exception as e:
+                    logging.error(f"Self-ping error for {endpoint}: {e}")
+            
+            if not success:
+                logging.error("All ping endpoints failed")
+            
+            await asyncio.sleep(ping_interval)
 
 # === Routes ===
 @app.get("/")
 async def root():
-    return {"status": "🤖 Bot is running with webhook on Render"}
+    return {"status": "🤖 Bot is running with webhook on Render", "timestamp": datetime.datetime.now().isoformat()}
+
+@app.get("/ping")
+async def ping():
+    """Health check endpoint for self-ping and external monitoring"""
+    return {"status": "pong", "timestamp": datetime.datetime.now().isoformat()}
+
+@app.get("/health")
+async def health():
+    """Comprehensive health check endpoint for external monitoring services"""
+    try:
+        # Check if bot is responsive
+        bot_info = await bot.get_me()
+        
+        # Check if Google Sheets is accessible
+        try:
+            worksheet.get_all_values()
+            sheets_status = "ok"
+        except Exception as e:
+            sheets_status = f"error: {str(e)}"
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "bot": {
+                "id": bot_info.id,
+                "username": bot_info.username,
+                "first_name": bot_info.first_name
+            },
+            "sheets": sheets_status,
+            "payze": "configured" if payze_client else "not_configured",
+            "uptime": "24/7"
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "error": str(e)
+        }
+
+@app.get("/uptime")
+async def uptime():
+    """Simple uptime endpoint for monitoring services"""
+    return {"status": "up", "timestamp": datetime.datetime.now().isoformat()}
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
-    body = await request.body()
-    logging.info(f"📩 მიღებულია update: {body}")
-    
-    update = types.Update(**json.loads(body))
-    await dp.process_update(update)
+    update = await request.json()
+    dp.process_update(update)
     return {"ok": True}
 
 # === Bot Handlers ===
@@ -441,6 +530,9 @@ if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(on_startup())
+
+    # Start self-ping worker
+    loop.create_task(self_ping_worker())
 
     port = int(os.environ.get("PORT", 10000))  # Render-ის პორტი
     uvicorn.run("main:app", host="0.0.0.0", port=port)

@@ -13,5 +13,23 @@ services:
         sync: false
       - key: SPREADSHEET_ID
         sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: PAYZE_API_KEY
+        sync: false
+      - key: PAYZE_MERCHANT_ID
+        sync: false
+    autoDeploy: true
+
+  - type: web
+    name: bot-pinger
+    env: python
+    repo: https://github.com/tomson20/Sales-bot--telegram
+    branch: master
+    buildCommand: pip install -r requirements.txt
+    startCommand: python pinger.py
+    envVars:
+      - key: BOT_URL
+        sync: false
     autoDeploy: true
 

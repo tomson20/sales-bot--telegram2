@@ -1,6 +1,6 @@
 pip>=25.1.1
 aiogram==2.25.2
-#aiohttp==3.8.6
+aiohttp==3.8.6
 gspread==5.12.4
 google-api-python-client==2.123.0
 oauth2client==4.1.3
