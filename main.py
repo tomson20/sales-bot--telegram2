@@ -9,8 +9,9 @@ from fastapi import FastAPI, Request
 import uvicorn
 from fastapi.responses import JSONResponse
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.dispatcher.webhook import get_new_configured_app
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import Update
 from aiogram.utils.exceptions import BotBlocked, ChatNotFound, TelegramAPIError
 
 import gspread
@@ -18,19 +19,23 @@ from config import BOT_TOKEN, ADMIN_CHAT_ID, SPREADSHEET_ID, WEBHOOK_URL, PAYZE_
 from payze import PayzeClient
 
 # === Logging ===
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # === Initialize FastAPI ===
 app = FastAPI()
 
 # === Initialize bot and dispatcher ===
-bot = Bot(token=BOT_TOKEN)
-bot.set_current(bot)
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN არ არის განსაზღვრული!")
 
-dp = Dispatcher(bot)
-dp.set_current(dp)
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
 # === Google Sheets setup ===
+if not SPREADSHEET_ID:
+    raise ValueError("SPREADSHEET_ID არ არის განსაზღვრული!")
+
 gc = gspread.service_account(filename="credentials.json")
 sh = gc.open_by_key(SPREADSHEET_ID)
 worksheet = sh.sheet1
@@ -63,7 +68,9 @@ async def self_ping_worker():
     
     # Get ping URL from environment or construct from webhook URL
     if os.getenv("SELF_PING_URL"):
-        ping_url = os.getenv("SELF_PING_URL").rstrip("/") + "/"
+        ping_url = os.getenv("SELF_PING_URL")
+        if ping_url:
+            ping_url = ping_url.rstrip("/") + "/"
     elif WEBHOOK_URL:
         # Use the root of the webhook URL
         from urllib.parse import urlparse
@@ -71,10 +78,10 @@ async def self_ping_worker():
         ping_url = f"{parsed.scheme}://{parsed.netloc}/"
     
     if not ping_url:
-        logging.warning("Self-ping disabled: no SELF_PING_URL or WEBHOOK_URL configured")
+        logger.warning("Self-ping disabled: no SELF_PING_URL or WEBHOOK_URL configured")
         return
     
-    logging.info(f"Self-ping worker started. Target: {ping_url}, Interval: {ping_interval}s")
+    logger.info(f"Self-ping worker started. Target: {ping_url}, Interval: {ping_interval}s")
     
     # Also ping the /ping endpoint for better reliability
     ping_endpoints = [
@@ -82,24 +89,25 @@ async def self_ping_worker():
         f"{ping_url.rstrip('/')}/ping"
     ]
     
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         while True:
             success = False
             
             for endpoint in ping_endpoints:
                 try:
-                    async with session.get(endpoint, timeout=30) as response:
+                    async with session.get(endpoint) as response:
                         if response.status == 200:
-                            logging.info(f"Self-ping OK: {endpoint}")
+                            logger.info(f"Self-ping OK: {endpoint}")
                             success = True
                             break
                         else:
-                            logging.warning(f"Self-ping non-200: {response.status} {endpoint}")
+                            logger.warning(f"Self-ping non-200: {response.status} {endpoint}")
                 except Exception as e:
-                    logging.error(f"Self-ping error for {endpoint}: {e}")
+                    logger.error(f"Self-ping error for {endpoint}: {e}")
             
             if not success:
-                logging.error("All ping endpoints failed")
+                logger.error("All ping endpoints failed")
             
             await asyncio.sleep(ping_interval)
 
@@ -131,9 +139,9 @@ async def health():
             "status": "healthy",
             "timestamp": datetime.datetime.now().isoformat(),
             "bot": {
-                "id": bot_info.id,
-                "username": bot_info.username,
-                "first_name": bot_info.first_name
+                "id": bot_info.id if bot_info else None,
+                "username": bot_info.username if bot_info else None,
+                "first_name": bot_info.first_name if bot_info else None
             },
             "sheets": sheets_status,
             "payze": "configured" if payze_client else "not_configured",
@@ -153,12 +161,22 @@ async def uptime():
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
-    update = await request.json()
-    dp.process_update(update)
-    return {"ok": True}
+    """Handle incoming webhook updates from Telegram"""
+    try:
+        update_data = await request.json()
+        logger.info(f"Received webhook update: {update_data}")
+        
+        # Process the update
+        update = Update(**update_data)
+        await dp.feed_update(bot, update)
+        
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        return {"ok": False, "error": str(e)}
 
 # === Bot Handlers ===
-@dp.message_handler(commands=['start'])
+@dp.message(Command("start"))
 async def send_welcome(message: types.Message):
     welcome_text = """🤖 გამარჯობა! მოგესალმებით შეკვეთების ბოტი!
 
@@ -171,32 +189,37 @@ async def send_welcome(message: types.Message):
 
 ❓ **დახმარებისთვის:** `/help`"""
     
-    await bot.send_message(chat_id=message.chat.id, text=welcome_text)
-    
+    await message.answer(welcome_text)
 
-@dp.message_handler(commands=['help'])
+@dp.message(Command("help"))
 async def send_help(message: types.Message):
     help_text = """🤖 **ბოტის ბრძანებები:**\n\n📋 **შეკვეთებისთვის:**\n• `/start` - დაიწყეთ შეკვეთის პროცესი\n• აირჩიეთ პროდუქტი ნომრით (1, 2, 3, და ა.შ.)\n\n❓ **დახმარებისთვის:**\n• `/help` - ეს შეტყობინება\n\n🛒 **შეკვეთის პროცესი:**\n1. აირჩიეთ პროდუქტი\n2. შეიყვანეთ სახელი\n3. შეიყვანეთ მისამართი\n4. შეიყვანეთ ტელეფონი\n5. აირჩიეთ გადახდის მეთოდი\n\n💳 **გადახდის ვარიანტები:**\n• 💵 **ნაღდი ფული** - გადაიხადეთ მიწოდებისას\n• 💳 **ონლაინ გადახდა** - გადაიხადეთ ახლა Payze-ით\n\n👨‍💼 **კითხვები ან დახმარება?**\nდაუკავშირდით ადმინს: [ჩატი ადმინთან](https://t.me/mebura)\n\n💡 **შეკვეთებისთვის:** აირჩიეთ პროდუქტი /start ბრძანებით."""
-    await bot.send_message(chat_id=message.chat.id, text=help_text, parse_mode="Markdown", disable_web_page_preview=True)
+    await message.answer(help_text, parse_mode="Markdown", disable_web_page_preview=True)
 
-@dp.message_handler(lambda message: message.text in products.keys())
+@dp.message(lambda message: message.text in products.keys())
 async def product_selected(message: types.Message):
-    user_data[message.from_user.id] = {"product": products[message.text]}
-    await bot.send_message(message.chat.id, "შენ აირჩიე: " + products[message.text])
-    await bot.send_message(message.chat.id, "შეიყვანეთ თქვენი სახელი:")
+    if message.from_user and message.from_user.id:
+        user_data[message.from_user.id] = {"product": products[message.text]}
+        await message.answer("შენ აირჩიე: " + products[message.text])
+        await message.answer("შეიყვანეთ თქვენი სახელი:")
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "name" not in user_data[message.from_user.id])
+@dp.message(lambda message: message.from_user and message.from_user.id and message.from_user.id in user_data and "name" not in user_data[message.from_user.id])
 async def get_name(message: types.Message):
-    user_data[message.from_user.id]["name"] = message.text
-    await bot.send_message(message.chat.id, "შეიყვანეთ მისამართი:")
+    if message.from_user and message.from_user.id:
+        user_data[message.from_user.id]["name"] = message.text
+        await message.answer("შეიყვანეთ მისამართი:")
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "address" not in user_data[message.from_user.id])
+@dp.message(lambda message: message.from_user and message.from_user.id and message.from_user.id in user_data and "address" not in user_data[message.from_user.id])
 async def get_address(message: types.Message):
-    user_data[message.from_user.id]["address"] = message.text
-    await bot.send_message(message.chat.id, "შეიყვანეთ ტელეფონი:")
+    if message.from_user and message.from_user.id:
+        user_data[message.from_user.id]["address"] = message.text
+        await message.answer("შეიყვანეთ ტელეფონი:")
 
-@dp.message_handler(lambda message: message.from_user.id in user_data and "phone" not in user_data[message.from_user.id])
+@dp.message(lambda message: message.from_user and message.from_user.id and message.from_user.id in user_data and "phone" not in user_data[message.from_user.id])
 async def get_phone(message: types.Message):
+    if not message.from_user or not message.from_user.id:
+        return
+        
     user_data[message.from_user.id]["phone"] = message.text
 
     data = user_data[message.from_user.id]
@@ -219,19 +242,20 @@ async def get_phone(message: types.Message):
     ], table_range="A1:H1")
 
     # შეკვეთის დასრულების შეტყობინება
-    await bot.send_message(message.chat.id, "✅ მადლობა, თქვენი შეკვეთა წარმატებით მიღებულია!")
+    await message.answer("✅ მადლობა, თქვენი შეკვეთა წარმატებით მიღებულია!")
     
     # გადახდის ვარიანტების შეტყობინება
     payment_text = f"""💳 **გადახდის ვარიანტები:**\n\n📦 პროდუქტი: {data['product']}\n\n🔸 **ვარიანტი 1: ნაღდი ფული მიწოდებისას**\n   - გადაიხადეთ მიწოდებისას ნაღდი ფულით\n   - უფასო მიწოდება\n\n🔸 **ვარიანტი 2: ონლაინ გადახდა**\n   - გადაიხადეთ ახლა ონლაინ Payze-ით\n   - უფასო მიწოდება\n\nაირჩიეთ გადახდის მეთოდი:"""
     
     # შევქმნათ ღილაკები
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        types.InlineKeyboardButton("💵 ნაღდი ფული", callback_data=f"cash_{message.from_user.id}"),
-        types.InlineKeyboardButton("💳 ონლაინ გადახდა", callback_data=f"online_{message.from_user.id}")
-    )
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [
+            types.InlineKeyboardButton(text="💵 ნაღდი ფული", callback_data=f"cash_{message.from_user.id}"),
+            types.InlineKeyboardButton(text="💳 ონლაინ გადახდა", callback_data=f"online_{message.from_user.id}")
+        ]
+    ])
     
-    await bot.send_message(message.chat.id, payment_text, reply_markup=keyboard)
+    await message.answer(payment_text, reply_markup=keyboard)
     
     # შევინახოთ მომხმარებლის მონაცემები გადახდისთვის
     user_data[message.from_user.id]["payment_pending"] = True
@@ -253,8 +277,10 @@ def find_order_row(user_id, product, phone, order_date, order_time):
             return i + 1  # 1-based index for gspread
     return None
 
-@dp.callback_query_handler(lambda c: c.data.startswith('cash_'))
+@dp.callback_query(lambda c: c.data and c.data.startswith('cash_'))
 async def cash_payment(callback_query: types.CallbackQuery):
+    if not callback_query.data:
+        return
     user_id = int(callback_query.data.split('_')[1])
     
     if user_id != callback_query.from_user.id:
@@ -263,7 +289,7 @@ async def cash_payment(callback_query: types.CallbackQuery):
     
     data = user_data.get(user_id)
     if not data:
-        logging.error(f"user_data not found for user_id: {user_id}")
+        logger.error(f"user_data not found for user_id: {user_id}")
         await callback_query.answer("შეკვეთა ვერ მოიძებნა! გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
         return
     
@@ -272,11 +298,11 @@ async def cash_payment(callback_query: types.CallbackQuery):
     missing_fields = [field for field in required_fields if field not in data]
     
     if missing_fields:
-        logging.error(f"Missing fields for user_id {user_id}: {missing_fields}. Available fields: {list(data.keys())}")
+        logger.error(f"Missing fields for user_id {user_id}: {missing_fields}. Available fields: {list(data.keys())}")
         await callback_query.answer(f"შეკვეთის მონაცემები არასრულია. გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
         return
     
-    logging.info(f"find_order_row params: user_id={user_id}, product={data['product']}, phone={data['phone']}, date={data['order_date']}, time={data['order_time']}")
+    logger.info(f"find_order_row params: user_id={user_id}, product={data['product']}, phone={data['phone']}, date={data['order_date']}, time={data['order_time']}")
     row_idx = find_order_row(
         user_id,
         data["product"],
@@ -284,19 +310,18 @@ async def cash_payment(callback_query: types.CallbackQuery):
         data["order_date"],
         data["order_time"]
     )
-    logging.info(f"find_order_row result: row_idx={row_idx}")
+    logger.info(f"find_order_row result: row_idx={row_idx}")
     if row_idx:
         try:
-            worksheet.update_cell(row_idx, 6, "ნაღდი გადახდა")
+            worksheet.update_cell(row_idx, 6, "ნაღდი ფული")
         except Exception as e:
-            logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+            logger.error(f"Google Sheets განახლების შეცდომა: {e}")
     else:
-        logging.error(f"ვერ მოიძებნა შესაბამისი რიგი გადახდის სტატუსის ჩასაწერად (cash). user_id={user_id}")
-        await bot.send_message(callback_query.from_user.id, "⚠️ ტექნიკური შეცდომა: გადახდის სტატუსის ჩაწერა ვერ მოხერხდა. გთხოვთ, დაუკავშირდეთ ადმინს.")
+        logger.error(f"ვერ მოიძებნა შესაბამისი რიგი გადახდის სტატუსის ჩასაწერად (cash). user_id={user_id}")
 
     # შეკვეთის დასრულების შეტყობინება (ნაღდი ფული)
     complete_text = (
-        f"✅ **ნაღდი ფულით გადახდა არჩეულია!**\n\n"
+        f"💵 **ნაღდი ფულით გადახდა არჩეულია!**\n\n"
         f"📦 პროდუქტი: {data['product']}\n"
         f"📛 სახელი: {data['name']}\n"
         f"📍 მისამართი: {data['address']}\n"
@@ -304,11 +329,12 @@ async def cash_payment(callback_query: types.CallbackQuery):
         f"💵 გადაიხადეთ მიწოდებისას ნაღდი ფულით.\n"
         f"🚚 მიწოდება მოხდება მალე.\n\n"
     )
-    complete_keyboard = types.InlineKeyboardMarkup(row_width=2)
-    complete_keyboard.add(
-        types.InlineKeyboardButton("/start", callback_data="start_again"),
-        types.InlineKeyboardButton("/help", callback_data="help_info")
-    )
+    complete_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [
+            types.InlineKeyboardButton(text="/start", callback_data="start_again"),
+            types.InlineKeyboardButton(text="/help", callback_data="help_info")
+        ]
+    ])
     await callback_query.message.edit_text(complete_text, reply_markup=complete_keyboard)
 
     # შევატყობინოთ ადმინს შეკვეთის დეტალებით, გადახდის მეთოდით და ბმულით
@@ -328,12 +354,14 @@ async def cash_payment(callback_query: types.CallbackQuery):
         # წავშალოთ მომხმარებლის მონაცემები მხოლოდ მას შემდეგ, რაც ადმინს წარმატებით გაეგზავნება შეტყობინება
         del user_data[user_id]
     except Exception as e:
-        logging.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
+        logger.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
         # თუ ადმინისთვის შეტყობინების გაგზავნა ვერ მოხერხდა, მაინც წავშალოთ მონაცემები
         del user_data[user_id]
 
-@dp.callback_query_handler(lambda c: c.data.startswith('online_'))
+@dp.callback_query(lambda c: c.data and c.data.startswith('online_'))
 async def online_payment(callback_query: types.CallbackQuery):
+    if not callback_query.data:
+        return
     user_id = int(callback_query.data.split('_')[1])
     
     if user_id != callback_query.from_user.id:
@@ -342,7 +370,7 @@ async def online_payment(callback_query: types.CallbackQuery):
     
     data = user_data.get(user_id)
     if not data:
-        logging.error(f"user_data not found for user_id: {user_id}")
+        logger.error(f"user_data not found for user_id: {user_id}")
         await callback_query.answer("შეკვეთა ვერ მოიძებნა! გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
         return
     
@@ -351,11 +379,11 @@ async def online_payment(callback_query: types.CallbackQuery):
     missing_fields = [field for field in required_fields if field not in data]
     
     if missing_fields:
-        logging.error(f"Missing fields for user_id {user_id}: {missing_fields}. Available fields: {list(data.keys())}")
+        logger.error(f"Missing fields for user_id {user_id}: {missing_fields}. Available fields: {list(data.keys())}")
         await callback_query.answer(f"შეკვეთის მონაცემები არასრულია. გთხოვთ, დაიწყეთ ახალი შეკვეთა /start ბრძანებით.")
         return
     
-    logging.info(f"find_order_row params: user_id={user_id}, product={data['product']}, phone={data['phone']}, date={data['order_date']}, time={data['order_time']}")
+    logger.info(f"find_order_row params: user_id={user_id}, product={data['product']}, phone={data['phone']}, date={data['order_date']}, time={data['order_time']}")
     row_idx = find_order_row(
         user_id,
         data["product"],
@@ -363,15 +391,14 @@ async def online_payment(callback_query: types.CallbackQuery):
         data["order_date"],
         data["order_time"]
     )
-    logging.info(f"find_order_row result: row_idx={row_idx}")
+    logger.info(f"find_order_row result: row_idx={row_idx}")
     if row_idx:
         try:
             worksheet.update_cell(row_idx, 6, "ონლაინ გადახდა")
         except Exception as e:
-            logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+            logger.error(f"Google Sheets განახლების შეცდომა: {e}")
     else:
-        logging.error(f"ვერ მოიძებნა შესაბამისი რიგი გადახდის სტატუსის ჩასაწერად (online). user_id={user_id}")
-        await bot.send_message(callback_query.from_user.id, "⚠️ ტექნიკური შეცდომა: გადახდის სტატუსის ჩაწერა ვერ მოხერხდა. გთხოვთ, დაუკავშირდეთ ადმინს.")
+        logger.error(f"ვერ მოიძებნა შესაბამისი რიგი გადახდის სტატუსის ჩასაწერად (online). user_id={user_id}")
 
     # შევქმნათ Payze გადახდის ბმული
     if payze_client:
@@ -403,11 +430,12 @@ async def online_payment(callback_query: types.CallbackQuery):
                     f"💡 გადახდის შემდეგ მიიღებთ დადასტურებას."
                 )
                 # ბოლოს
-                complete_keyboard = types.InlineKeyboardMarkup(row_width=2)
-                complete_keyboard.add(
-                    types.InlineKeyboardButton("/start", callback_data="start_again"),
-                    types.InlineKeyboardButton("/help", callback_data="help_info")
-                )
+                complete_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        types.InlineKeyboardButton(text="/start", callback_data="start_again"),
+                        types.InlineKeyboardButton(text="/help", callback_data="help_info")
+                    ]
+                ])
                 await callback_query.message.edit_text(complete_text, reply_markup=complete_keyboard)
 
                 # შევატყობინოთ ადმინს შეკვეთის დეტალებით, გადახდის მეთოდით და ბმულით
@@ -426,13 +454,12 @@ async def online_payment(callback_query: types.CallbackQuery):
                         f"🔗 გადახდის ბმული: {pay_url}"
                     )
                 except Exception as e:
-                    logging.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
+                    logger.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
                 
             else:
-                cash_keyboard = types.InlineKeyboardMarkup()
-                cash_keyboard.add(
-                    types.InlineKeyboardButton("ნაღდი ფულით გადახდა", callback_data=f"cash_{user_id}")
-                )
+                cash_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                    [types.InlineKeyboardButton(text="ნაღდი ფულით გადახდა", callback_data=f"cash_{user_id}")]
+                ])
                 await callback_query.message.edit_text(
                     "❌ გადახდის ბმულის გენერაცია ვერ მოხერხდა.\n"
                     "გთხოვთ, სცადეთ მოგვიანებით ან აირჩიეთ ნაღდი ფულით გადახდა.",
@@ -440,21 +467,19 @@ async def online_payment(callback_query: types.CallbackQuery):
                 )
                 
         except Exception as e:
-            logging.error(f"PAYZE ERROR: {e}")
-            cash_keyboard = types.InlineKeyboardMarkup()
-            cash_keyboard.add(
-                types.InlineKeyboardButton("ნაღდი ფულით გადახდა", callback_data=f"cash_{user_id}")
-            )
+            logger.error(f"PAYZE ERROR: {e}")
+            cash_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="ნაღდი ფულით გადახდა", callback_data=f"cash_{user_id}")]
+            ])
             await callback_query.message.edit_text(
                 "❌ გადახდის სისტემა დროებით მიუწვდომელია.\n"
                 "აირჩიეთ ნაღდი ფულით გადახდა 👇",
                 reply_markup=cash_keyboard
             )
     else:
-        cash_keyboard = types.InlineKeyboardMarkup()
-        cash_keyboard.add(
-            types.InlineKeyboardButton("ნაღდი ფულით გადახდა", callback_data=f"cash_{user_id}")
-        )
+        cash_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="ნაღდი ფულით გადახდა", callback_data=f"cash_{user_id}")]
+        ])
         await callback_query.message.edit_text(
             "❌ ონლაინ გადახდა დროებით მიუწვდომელია.\n"
             "აირჩიეთ ნაღდი ფულით გადახდა 👇",
@@ -465,7 +490,7 @@ async def online_payment(callback_query: types.CallbackQuery):
 @app.post("/payze_webhook")
 async def payze_webhook(request: Request):
     body = await request.json()
-    logging.info(f"[PAYZE] მიღებულია გადახდის სტატუსი: {body}")
+    logger.info(f"[PAYZE] მიღებულია გადახდის სტატუსი: {body}")
     invoice_id = body.get("invoice_id")
     status = body.get("status")
     
@@ -486,7 +511,7 @@ async def payze_webhook(request: Request):
                     try:
                         worksheet.update_cell(row_idx, 6, "გადახდილი")
                     except Exception as e:
-                        logging.error(f"Google Sheets განახლების შეცდომა: {e}")
+                        logger.error(f"Google Sheets განახლების შეცდომა: {e}")
                 
                 # შევატყობინოთ მომხმარებელს
                 await bot.send_message(
@@ -507,43 +532,55 @@ async def payze_webhook(request: Request):
                         f"✅ სტატუსი: გადახდილი"
                     )
                 except Exception as e:
-                    logging.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
+                    logger.error(f"ადმინისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
                 
                 del user_invoice_map[invoice_id]
                 
             except Exception as e:
-                logging.error(f"[PAYZE] მომხმარებლისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
+                logger.error(f"[PAYZE] მომხმარებლისთვის შეტყობინების გაგზავნის შეცდომა: {e}")
     
     return JSONResponse(content={"ok": True})
 
 # === Start server & webhook setup ===
-if __name__ == "__main__":
-    import asyncio
+@app.on_event("startup")
+async def startup_event():
+    """Initialize bot on startup"""
+    try:
+        # Set webhook
+        if WEBHOOK_URL:
+            await bot.set_webhook(url=WEBHOOK_URL)
+            logger.info(f"✅ Webhook დაყენებულია: {WEBHOOK_URL}")
+        else:
+            logger.warning("⚠️ WEBHOOK_URL არ არის განსაზღვრული!")
+        
+        # Start self-ping worker
+        asyncio.create_task(self_ping_worker())
+        logger.info("✅ Self-ping worker started")
+        
+    except Exception as e:
+        logger.error(f"❌ Startup error: {e}")
 
-    async def on_startup():
-        await bot.set_webhook(WEBHOOK_URL)
-        logging.info(f"Webhook დაყენებულია: {WEBHOOK_URL}")
-
-    async def on_shutdown():
-        logging.info("ბოტი ითიშება...")
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    try:
+        logger.info("🔄 ბოტი ითიშება...")
         await bot.delete_webhook()
+        logger.info("✅ Webhook წაშლილია")
+    except Exception as e:
+        logger.error(f"❌ Shutdown error: {e}")
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(on_startup())
-
-    # Start self-ping worker
-    loop.create_task(self_ping_worker())
-
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  # Render-ის პორტი
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    uvicorn.run("main:app", host="0.0.0.0", port=port, log_level="info")
 
 # დაამატე ჰენდლერი start_again და help_info callback-ებისთვის
-@dp.callback_query_handler(lambda c: c.data == 'start_again')
+@dp.callback_query(lambda c: c.data == 'start_again')
 async def callback_start_again(callback_query: types.CallbackQuery):
     await send_welcome(callback_query.message)
     await callback_query.answer()
 
-@dp.callback_query_handler(lambda c: c.data == 'help_info')
+@dp.callback_query(lambda c: c.data == 'help_info')
 async def callback_help_info(callback_query: types.CallbackQuery):
     await send_help(callback_query.message)
     await callback_query.answer()
